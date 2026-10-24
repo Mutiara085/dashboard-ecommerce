@@ -7,7 +7,7 @@ import streamlit as st
 from matplotlib.ticker import FuncFormatter
 
 sns.set_style("whitegrid")
-st.set_page_config(page_title="E-Commerce Dashboard", page_icon="🛒", layout="wide")
+st.set_page_config(page_title="Dashboard E-Commerce", page_icon="🛒", layout="wide")
 
 
 @st.cache_data
@@ -24,7 +24,7 @@ def juta(x, _):
 
 df = load_data()
 
-# ---------------- Sidebar ----------------
+# ---------------- Sidebar: fitur interaktif (filter) ----------------
 st.sidebar.header("Filter Data")
 min_date = df["order_purchase_timestamp"].min().date()
 max_date = df["order_purchase_timestamp"].max().date()
@@ -39,6 +39,7 @@ rentang = st.sidebar.date_input(
 )
 semua_state = sorted(df["customer_state"].unique())
 pilih_state = st.sidebar.multiselect("Negara bagian", semua_state, default=semua_state)
+st.sidebar.caption("Bawaan: Januari-Desember 2017, sesuai pertanyaan bisnis di notebook.")
 
 if len(rentang) != 2:
     st.info("Pilih tanggal awal dan tanggal akhir pada filter di samping.")
@@ -65,15 +66,24 @@ c2.metric("Jumlah Order", f"{data['order_id'].nunique():,}")
 c3.metric("Jumlah Pelanggan", f"{data['customer_unique_id'].nunique():,}")
 
 # ---------------- Pertanyaan 1 ----------------
-st.subheader("1. Revenue per Kategori Produk")
+st.subheader("Pertanyaan 1: Distribusi Revenue per Kategori Produk")
+st.write(
+    "Bagaimana distribusi total revenue per kategori produk, dan berapa persen kontribusi "
+    "5 kategori teratas serta 5 kategori terendah terhadap total revenue?"
+)
 rev_kat = (
     data.groupby("product_category_name_english")["revenue"]
     .sum()
     .sort_values(ascending=False)
     .reset_index()
 )
+rev_kat["persen"] = rev_kat["revenue"] / rev_kat["revenue"].sum() * 100
 top5 = rev_kat.head(5)
 bottom5 = rev_kat.tail(5).sort_values("revenue", ascending=False)
+
+k1, k2 = st.columns(2)
+k1.metric("Kontribusi 5 kategori teratas", f"{top5['persen'].sum():.1f}%")
+k2.metric("Kontribusi 5 kategori terendah", f"{bottom5['persen'].sum():.2f}%")
 
 fig, ax = plt.subplots(1, 2, figsize=(16, 5))
 sns.barplot(data=top5, x="revenue", y="product_category_name_english", color="#1f77b4", ax=ax[0])
@@ -90,17 +100,28 @@ plt.tight_layout()
 st.pyplot(fig)
 
 # ---------------- Pertanyaan 2 ----------------
-st.subheader("2. Tren Order dan Revenue Bulanan")
+st.subheader("Pertanyaan 2: Tren Order dan Revenue Bulanan")
+st.write(
+    "Bagaimana tren jumlah order dan total revenue bulanan, pada bulan apa puncaknya terjadi, "
+    "dan berapa persen kenaikannya dibandingkan bulan sebelumnya?"
+)
 tren = (
     data.groupby("order_month")
     .agg(jumlah_order=("order_id", "nunique"), total_revenue=("revenue", "sum"))
     .reset_index()
 )
+tren["kenaikan_revenue_persen"] = tren["total_revenue"].pct_change() * 100
+
+idx = tren["total_revenue"].idxmax()
+x_p, y_p = tren.loc[idx, "order_month"], tren.loc[idx, "total_revenue"]
+naik = tren.loc[idx, "kenaikan_revenue_persen"]
+
+t1, t2 = st.columns(2)
+t1.metric("Bulan puncak revenue", x_p)
+t2.metric("Kenaikan vs bulan sebelumnya", "-" if pd.isna(naik) else f"{naik:+.1f}%")
 
 fig, ax = plt.subplots(figsize=(12, 5))
 ax.plot(tren["order_month"], tren["total_revenue"], marker="o", linewidth=2, color="#1f77b4")
-idx = tren["total_revenue"].idxmax()
-x_p, y_p = tren.loc[idx, "order_month"], tren.loc[idx, "total_revenue"]
 ax.scatter(x_p, y_p, color="#d62728", s=120, zorder=5)
 ax.annotate(f"Puncak: {x_p}", (x_p, y_p), textcoords="offset points",
             xytext=(-12, 0), ha="right", va="center", color="#d62728", fontsize=11)
@@ -111,18 +132,25 @@ plt.xticks(rotation=45)
 ax.grid(axis="y", alpha=0.3)
 plt.tight_layout()
 st.pyplot(fig)
-st.dataframe(tren, use_container_width=True, hide_index=True)
+st.dataframe(tren.round(1), width="stretch", hide_index=True)
 
 # ---------------- Pertanyaan 3 ----------------
-st.subheader("3. Negara Bagian dengan Revenue Tertinggi")
+st.subheader("Pertanyaan 3: Pelanggan dan Revenue per Negara Bagian")
+st.write(
+    "Bagaimana distribusi jumlah pelanggan dan total revenue per negara bagian, "
+    "dan berapa persen revenue yang disumbang oleh 3 negara bagian teratas?"
+)
 state = (
     data.groupby("customer_state")
     .agg(jumlah_pelanggan=("customer_unique_id", "nunique"), total_revenue=("revenue", "sum"))
     .sort_values("total_revenue", ascending=False)
     .reset_index()
 )
+state["persen_revenue"] = state["total_revenue"] / state["total_revenue"].sum() * 100
 top10 = state.head(10)
-warna = ["#d62728" if i == 0 else "#b0b0b0" for i in range(len(top10))]
+warna = ["#d62728" if i < 3 else "#b0b0b0" for i in range(len(top10))]
+
+st.metric("Kontribusi 3 negara bagian teratas", f"{state.head(3)['persen_revenue'].sum():.1f}%")
 
 fig, ax = plt.subplots(figsize=(10, 5))
 sns.barplot(data=top10, x="customer_state", y="total_revenue",
@@ -132,6 +160,7 @@ ax.set_xlabel("Negara Bagian")
 ax.set_ylabel("Total Revenue (R$)")
 plt.tight_layout()
 st.pyplot(fig)
+st.dataframe(top10.round(1), width="stretch", hide_index=True)
 
 # ---------------- RFM ----------------
 st.subheader("Analisis Lanjutan: RFM")
